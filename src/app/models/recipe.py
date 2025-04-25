@@ -11,7 +11,6 @@ class Recipe(Base, BaseModel):
     cook_time = Column(Integer, nullable=True)
     total_time = Column(Integer, nullable=True)
     servings = Column(Integer, nullable=True)
-    yield_amount = Column(String, nullable=True)
     ingredients = Column(Text, nullable=False)
     directions = Column(Text, nullable=False)
     rating = Column(Float, nullable=True)
