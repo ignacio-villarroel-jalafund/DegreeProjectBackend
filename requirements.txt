@@ -12,3 +12,7 @@ python-dotenv
 celery
 redis
 alembic
+duckduckgo_search
+recipe-scrapers
+ollama
+gevent
