@@ -1,18 +1,27 @@
-import os
 from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
-from typing import Optional
-
-load_dotenv()
+from typing import List, Optional
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = os.getenv("DATABASE_URL")
-    SECRET_KEY: str = os.getenv("SECRET_KEY")
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    DATABASE_URL: str
+    SECRET_KEY: str
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
+
+    CELERY_BROKER_URL: str
+    CELERY_RESULT_BACKEND: str
+
+    OLLAMA_HOST: str
+    OLLAMA_MODEL: str
+
+    MAX_SEARCH_RESULTS: int
+    RECIPE_DOMAINS: Optional[str] = None
+
+    REDIS_HOST: str
+    REDIS_PORT: int
 
     class Config:
-        env_file = ".env"
-        extra = "ignore"
+        env_file = '.env'
+        env_file_encoding = 'utf-8'
+        extra = 'ignore'
 
 settings = Settings()
