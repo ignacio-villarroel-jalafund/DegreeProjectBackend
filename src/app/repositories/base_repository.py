@@ -54,3 +54,6 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             db.delete(obj)
             db.commit()
         return obj
+    
+    def get_by_attribute(self, db: Session, attribute: str, value: Any) -> Optional[ModelType]:
+        return db.query(self.model).filter(getattr(self.model, attribute) == value).first()
