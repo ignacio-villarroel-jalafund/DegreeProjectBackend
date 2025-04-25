@@ -47,6 +47,25 @@ async def scrape_recipe_url_endpoint(
         print(f"Unexpected error in /scrape endpoint: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error processing the scraping request.")
 
+@router.post("/analyze", response_model=TaskId, status_code=status.HTTP_202_ACCEPTED)
+async def analyze_scraped_recipe_endpoint(
+    scraped_data: ScrapedRecipeData = Body(...)
+):
+    print(f"Received request to ANALYZE recipe: {scraped_data.recipe_name}")
+
+    try:
+        scraped_data_dict = scraped_data.model_dump(mode='json')
+
+        task = analyze_and_return.delay(scraped_data_dict)
+        print(f"Analysis Celery task started with ID: {task.id}")
+        return TaskId(task_id=task.id)
+    except Exception as e:
+        print(f"Error sending analysis task to Celery: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not start recipe analysis: {e}"
+        )
+
 @router.get("/{recipe_id}", response_model=RecipeBase)
 def read_recipe_endpoint(
     *,

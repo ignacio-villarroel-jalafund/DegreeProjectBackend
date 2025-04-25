@@ -45,7 +45,7 @@ def create_user_endpoint(
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El correo electrónico ya está registrado.",
+            detail="Email is already registered.",
         )
     user = user_service.create_user(db=db, user_in=user_in)
     return user
@@ -81,7 +81,6 @@ def remove_favorite_recipe_endpoint(
     recipe_id: UUID,
     current_user: UserModel = Depends(get_current_active_user)
 ):
-    """Elimina una receta de los favoritos del usuario actual."""
     deleted = favorite_service.remove_favorite(db, recipe_id=recipe_id, user_id=current_user.id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Favorite not found for this user and recipe")
@@ -94,6 +93,5 @@ def get_favorite_recipes_endpoint(
     limit: int = 100,
     current_user: UserModel = Depends(get_current_active_user)
 ):
-    """Obtiene las recetas favoritas del usuario actual."""
     recipes = favorite_service.get_favorites(db, user_id=current_user.id, skip=skip, limit=limit)
     return recipes
