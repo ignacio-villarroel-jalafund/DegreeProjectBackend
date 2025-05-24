@@ -1,4 +1,31 @@
-__pycache__
-.env
-alembic
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.so
+
 alembic.ini
+alembic/
+
+.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+venv/
+.env
+*.env.*
+!*.env.example
+
+# Docker
+docker-compose.override.yml
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# IDE folders
+.idea/
+.vscode/
