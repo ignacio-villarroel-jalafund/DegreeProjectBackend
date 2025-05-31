@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 
+
 class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
@@ -20,7 +21,8 @@ class Settings(BaseSettings):
     REDIS_PORT: int
 
     GOOGLE_API_KEY: str
-    GOOGLE_SEARCH_ENGINE_ID: str
+    GOOGLE_SEARCH_RECIPE_ENGINE_ID: str
+    GOOGLE_SEARCH_INGREDIENT_ENGINE_ID: str
 
     N8N_BASE_URL: str
 
@@ -28,5 +30,6 @@ class Settings(BaseSettings):
         env_file = '.env'
         env_file_encoding = 'utf-8'
         extra = 'ignore'
+
 
 settings = Settings()
