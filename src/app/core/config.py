@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     REDIS_HOST: str
     REDIS_PORT: int
 
+    GOOGLE_API_KEY: str
+    GOOGLE_SEARCH_ENGINE_ID: str
+
+    N8N_BASE_URL: str
+
     class Config:
         env_file = '.env'
         env_file_encoding = 'utf-8'
