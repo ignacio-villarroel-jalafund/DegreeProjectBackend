@@ -50,6 +50,11 @@ class AIAgentsService:
         webhook_path = "/webhook/ae6bacec-c322-408a-9c01-225d4215eb86"
         payload = request_body
         return self._call_n8n_webhook(webhook_path, payload)
+    
+    def extract_ingredient(self, body: str) -> Dict[str, Any]:
+        webhook_path = "/webhook/40d91208-97ec-45c4-bfbe-528c65e2f7de"
+        payload = body
+        return self._call_n8n_webhook(webhook_path, payload)
 
 
 ai_agents_service = AIAgentsService()
