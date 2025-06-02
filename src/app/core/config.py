@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     GOOGLE_SEARCH_RECIPE_ENGINE_ID: str
     GOOGLE_SEARCH_INGREDIENT_ENGINE_ID: str
 
+    GEONAMES_USERNAME: str
+    GEONAMES_API_BASE_URL: str
+
+    GOOGLE_MAPS_API_KEY: str
+    GOOGLE_MAPS_API_BASE_URL: str
+
     N8N_BASE_URL: str
 
     class Config:
