@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Annotated, List, Any
@@ -7,8 +7,7 @@ from uuid import UUID
 from app.core.database import get_db
 from app.schemas.favorite import FavoriteBase as FavoriteSchema
 from app.schemas.recipe import RecipeBase as RecipeSchema
-from app.schemas.user import User, UserCreate
-
+from app.schemas.user import User, UserCreate, UserUpdateDetails, UserUpdatePassword
 from app.services.favorite_service import favorite_service
 from app.services.user_service import user_service
 from app.core.security import (
@@ -47,6 +46,14 @@ def create_user_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email is already registered.",
         )
+    
+    db_user_username = user_service.repository.get_by_username(db, username=user_in.username)
+    if db_user_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username is already registered.",
+        )
+
     user = user_service.create_user(db=db, user_in=user_in)
     return user
 
@@ -55,6 +62,48 @@ def read_users_me(
     current_user: UserModel = Depends(get_current_active_user)
 ):
     return current_user
+
+@router.put("/me/details", response_model=User)
+def update_user_details_endpoint(
+    *,
+    db: Session = Depends(get_db),
+    user_in: UserUpdateDetails,
+    current_user: UserModel = Depends(get_current_active_user)
+):
+    try:
+        updated_user = user_service.update_user_details(db=db, db_user=current_user, user_in=user_in)
+        return updated_user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+@router.put("/me/password")
+def update_user_password_endpoint(
+    *,
+    db: Session = Depends(get_db),
+    password_in: UserUpdatePassword,
+    current_user: UserModel = Depends(get_current_active_user)
+):
+    try:
+        success = user_service.update_user_password(db=db, db_user=current_user, password_in=password_in)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Incorrect current password.",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while updating the password.",
+        )
 
 @router.post("/me/favorites/{recipe_id}", response_model=FavoriteSchema, status_code=status.HTTP_201_CREATED)
 def add_favorite_recipe_endpoint(
