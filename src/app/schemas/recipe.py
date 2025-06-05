@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 import uuid
@@ -38,6 +38,13 @@ class RecipeTime(BaseModel):
     cookTime: Optional[int] = None
     prepTime: Optional[int] = None
     totalTime: Optional[int] = None
+
+    @field_validator('cookTime', 'prepTime', 'totalTime', mode='before')
+    @classmethod
+    def parse_null_string_as_none(cls, value: Any) -> Optional[int]:
+        if isinstance(value, str) and value.lower() == 'null':
+            return None
+        return value
 
 class ScrapedRecipeData(BaseModel):
     title: Optional[str] = None
