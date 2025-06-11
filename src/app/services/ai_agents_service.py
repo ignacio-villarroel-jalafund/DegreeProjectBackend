@@ -1,6 +1,6 @@
 import requests
 from requests.exceptions import RequestException, HTTPError, JSONDecodeError
-from typing import Dict, Any
+from typing import Dict, Any, List
 from app.core.config import settings
 
 class AIAgentsService:
@@ -63,6 +63,13 @@ class AIAgentsService:
         webhook_path = "/webhook/40d91208-97ec-45c4-bfbe-528c65e2f7de"
         payload = body
         return self._call_n8n_webhook(webhook_path, payload)
-
+    
+    def enrich_ingredients(self, ingredients: List[str]) -> Dict[str, Any]:
+        webhook_path = "/webhook/e50f3d78-caf8-4344-9088-f4c32b40718c" 
+        payload = {
+            "ingredients": ingredients
+        }
+        print(f"Calling n8n to enrich {len(ingredients)} ingredients...")
+        return self._call_n8n_webhook(webhook_path, payload)
 
 ai_agents_service = AIAgentsService()

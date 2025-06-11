@@ -7,12 +7,10 @@ from app.core.database import get_db
 from app.schemas.ingredient import IngredientInfoResponse
 from app.schemas.recipe import RecipeBase, RecipeSearchResult, ScrapeRequest, ScrapedRecipeData, RecipeAdaptationRequest, RecipeAdaptationResponse
 from app.schemas.task import TaskId
+from app.services import nutrition_service
 from app.services.search_service import search_service
 from app.services.recipe_service import recipe_service
-from app.models.user import User as UserModel
-from app.schemas.rating import RatingBase, RatingCreate
-from app.services.rating_service import rating_service
-from app.core.security import get_current_active_user
+from app.models.user import User
 from app.tasks.recipe_tasks import scrape_and_analyze_recipe
 from app.services.ai_agents_service import ai_agents_service
 
@@ -119,30 +117,6 @@ def read_recipe_endpoint(
     return db_recipe
 
 
-@router.post("/{recipe_id}/rate", response_model=RatingBase, status_code=status.HTTP_201_CREATED)
-def rate_recipe_endpoint(
-    *,
-    db: Session = Depends(get_db),
-    recipe_id: UUID,
-    rating_in: RatingCreate,
-    current_user: UserModel = Depends(get_current_active_user)
-):
-    try:
-        rating = rating_service.rate_recipe(
-            db, rating_in=rating_in, recipe_id=recipe_id, user_id=current_user.id)
-        return rating
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-        elif "already rated" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=str(e))
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
 @router.get("/", response_model=List[RecipeBase])
 def list_recipes_endpoint(
     *,
@@ -154,7 +128,7 @@ def list_recipes_endpoint(
     return recipes
 
 @router.post("/adapt", response_model=RecipeAdaptationResponse, status_code=status.HTTP_200_OK)
-def adapt_recipe_endpoint(
+async def adapt_recipe_endpoint(
     request: RecipeAdaptationRequest = Body(...)
 ):
     try:
@@ -172,6 +146,14 @@ def adapt_recipe_endpoint(
             )
 
         validated_response = RecipeAdaptationResponse(**response_from_agent)
+
+        if validated_response.updated_recipe and validated_response.updated_recipe.ingredients:
+            print("Re-calculating nutritional information for adapted recipe...")
+            new_nutritional_info = await nutrition_service.calculate_nutritional_info_for_recipe(
+                ingredients=validated_response.updated_recipe.ingredients
+            )
+            validated_response.updated_recipe.nutrition = new_nutritional_info
+            print("Nutritional information for adapted recipe calculated.")
 
         return validated_response
 

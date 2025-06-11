@@ -1,6 +1,7 @@
 from typing import Dict, Any
 
 from app.celery.celery_app import celery_app
+from app.services import nutrition_service
 from app.services.analysis_service import analysis_service
 from app.services.scraping_service import scraping_service
 from app.services.recipe_processor_service import recipe_processor_service
@@ -11,8 +12,15 @@ async def scrape_and_analyze_recipe(self, url: str) -> Dict[str, Any]:
 
     try:
         scraped_data = await scraping_service.scrape_recipe_from_url(url)
-
         cleaned_data = recipe_processor_service.process(scraped_data)
+
+        if cleaned_data and cleaned_data.get('ingredients'):
+            print(f"[{task_id}] Calculating nutritional information...")
+            nutritional_info = await nutrition_service.calculate_nutritional_info_for_recipe(
+                ingredients=cleaned_data['ingredients']
+            )
+            cleaned_data['nutrition'] = nutritional_info
+            print(f"[{task_id}] Nutritional information calculated.")
         
         return cleaned_data
 

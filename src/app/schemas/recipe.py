@@ -79,3 +79,20 @@ class RecipeAdaptationRequest(BaseModel):
 
 class RecipeAdaptationResponse(BaseModel):
     updated_recipe: ScrapedRecipeData = Field(..., description="The complete recipe with the applied modifications.")
+
+class NutritionInfo(BaseModel):
+    calories: Optional[float] = Field(None, description="Calorías totales aproximadas (kcal).")
+    protein: Optional[float] = Field(None, description="Proteínas totales aproximadas (g).")
+    carbohydrates: Optional[float] = Field(None, description="Carbohidratos totales aproximados (g).")
+    fat: Optional[float] = Field(None, description="Grasas totales aproximadas (g).")
+    source: str = "Open Food Facts (Estimación sumando valores por 100g de cada ingrediente)"
+
+class ScrapedRecipeData(BaseModel):
+    title: Optional[str] = None
+    image_url: Optional[str] = None
+    servings: Optional[int] = None
+    time: Optional[RecipeTime] = None 
+    ingredients: Optional[List[str]] = []
+    directions: Optional[List[str]] = []
+    url: Optional[str] = None
+    nutrition: Optional[NutritionInfo] = None
