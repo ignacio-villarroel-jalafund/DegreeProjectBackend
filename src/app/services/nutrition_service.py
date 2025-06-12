@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import re
 from typing import List, Dict, Optional, Tuple
@@ -59,29 +60,40 @@ class NutritionService:
         ingredient_names_to_search = [self._parse_ingredient(ing)[1] for ing in ingredients]
         enriched_data = ai_agents_service.enrich_ingredients(ingredient_names_to_search)
         
-        if 'error' in enriched_data or not enriched_data.get('enriched_ingredients'):
-            print("Failed to enrich ingredients. Skipping nutritional calculation.")
+        if 'error' in enriched_data or 'ingredients' not in enriched_data:
+            print("Error en la respuesta de n8n o la clave 'ingredients' no se encontró.")
             return None
 
-        enriched_ingredients = enriched_data['enriched_ingredients']
+        enriched_ingredients_list = enriched_data['ingredients']
+
+        if not enriched_ingredients_list or not isinstance(enriched_ingredients_list, list):
+            print("La lista 'ingredients' de n8n está vacía o no es una lista válida.")
+            return None
 
         total_nutrition = {
             "calories": 0.0, "protein": 0.0, "carbohydrates": 0.0, "fat": 0.0
         }
         
-        for original_ing, enriched_name in zip(ingredients, enriched_ingredients):
-            if not enriched_name:
+        for ingredient_obj in enriched_ingredients_list:
+            if not isinstance(ingredient_obj, dict) or 'name' not in ingredient_obj:
                 continue
+            
+            enriched_name = ingredient_obj['name']
 
+            if not enriched_name or not isinstance(enriched_name, str):
+                continue
+            
+            print(f"Buscando información para: '{enriched_name}'")
             nutriments = await self._get_nutritional_info_from_off(enriched_name)
             
             if nutriments:
-                total_nutrition["calories"] += nutriments.get('energy-kcal_100g', 0.0)
-                total_nutrition["protein"] += nutriments.get('proteins_100g', 0.0)
-                total_nutrition["carbohydrates"] += nutriments.get('carbohydrates_100g', 0.0)
-                total_nutrition["fat"] += nutriments.get('fat_100g', 0.0)
+                total_nutrition["calories"] += float(nutriments.get('energy-kcal_100g', 0.0) or 0.0)
+                total_nutrition["protein"] += float(nutriments.get('proteins_100g', 0.0) or 0.0)
+                total_nutrition["carbohydrates"] += float(nutriments.get('carbohydrates_100g', 0.0) or 0.0)
+                total_nutrition["fat"] += float(nutriments.get('fat_100g', 0.0) or 0.0)
+            
+            await asyncio.sleep(1)
         
         return NutritionInfo(**total_nutrition)
-
-
+    
 nutrition_service = NutritionService()

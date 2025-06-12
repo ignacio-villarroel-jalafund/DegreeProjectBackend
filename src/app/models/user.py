@@ -11,5 +11,4 @@ class User(Base, BaseModel):
     password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
 
-    ratings = relationship("Rating", back_populates="user")
     favorites = relationship("Favorite", back_populates="user")

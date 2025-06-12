@@ -16,7 +16,7 @@ async def scrape_and_analyze_recipe(self, url: str) -> Dict[str, Any]:
 
         if cleaned_data and cleaned_data.get('ingredients'):
             print(f"[{task_id}] Calculating nutritional information...")
-            nutritional_info = await nutrition_service.calculate_nutritional_info_for_recipe(
+            nutritional_info = await nutrition_service.nutrition_service.calculate_nutritional_info_for_recipe(
                 ingredients=cleaned_data['ingredients']
             )
             cleaned_data['nutrition'] = nutritional_info

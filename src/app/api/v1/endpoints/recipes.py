@@ -149,7 +149,7 @@ async def adapt_recipe_endpoint(
 
         if validated_response.updated_recipe and validated_response.updated_recipe.ingredients:
             print("Re-calculating nutritional information for adapted recipe...")
-            new_nutritional_info = await nutrition_service.calculate_nutritional_info_for_recipe(
+            new_nutritional_info = await nutrition_service.nutrition_service.calculate_nutritional_info_for_recipe(
                 ingredients=validated_response.updated_recipe.ingredients
             )
             validated_response.updated_recipe.nutrition = new_nutritional_info
