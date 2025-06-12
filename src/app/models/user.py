@@ -12,3 +12,4 @@ class User(Base, BaseModel):
     is_active = Column(Boolean, default=True)
 
     favorites = relationship("Favorite", back_populates="user")
+    history_entries = relationship("History", back_populates="user", cascade="all, delete-orphan")
