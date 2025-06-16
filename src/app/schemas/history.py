@@ -13,9 +13,13 @@ class HistoryBase(BaseModel):
 class HistoryCreate(HistoryBase):
     user_id: uuid.UUID
 
+class HistoryUpdate(HistoryBase):
+    pass
+
 class HistoryRead(BaseModel):
     id: uuid.UUID
     created_at: datetime
+    updated_at: Optional[datetime] = None
     recipe_data: ScrapedRecipeData
     source_url: Optional[str] = None
     is_adapted: bool

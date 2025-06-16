@@ -6,8 +6,10 @@ from uuid import UUID
 
 from app.core.database import get_db
 from app.schemas.favorite import FavoriteBase as FavoriteSchema
+from app.schemas.history import HistoryRead
 from app.schemas.recipe import RecipeBase as RecipeSchema
 from app.schemas.user import User, UserCreate, UserUpdateDetails, UserUpdatePassword
+from app.services import history_service
 from app.services.favorite_service import favorite_service
 from app.services.user_service import user_service
 from app.core.security import (
@@ -144,3 +146,14 @@ def get_favorite_recipes_endpoint(
 ):
     recipes = favorite_service.get_favorites(db, user_id=current_user.id, skip=skip, limit=limit)
     return recipes
+
+@router.get("/me/history", response_model=List[HistoryRead])
+def get_user_history_endpoint(
+    *,
+    db: Session = Depends(get_db),
+    skip: int = 0,
+    limit: int = 20,
+    current_user: UserModel = Depends(get_current_active_user)
+):
+
+    return history_service.history_service.get_user_history(db, user_id=current_user.id, skip=skip, limit=limit)

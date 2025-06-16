@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.history import History
 from app.repositories.history_repository import history_repository, HistoryRepository
-from app.schemas.history import HistoryCreate
+from app.schemas.history import HistoryCreate, HistoryUpdate
 
 class HistoryService:
     def __init__(self, repository: HistoryRepository):
@@ -19,14 +19,26 @@ class HistoryService:
         source_url: Optional[str],
         is_adapted: bool
     ) -> History:
-        history_in = HistoryCreate(
-            user_id=user_id,
-            recipe_data=recipe_data,
-            source_url=source_url,
-            is_adapted=is_adapted
-        )
+        if not source_url:
+            history_in_create = HistoryCreate(
+                user_id=user_id, recipe_data=recipe_data, source_url=source_url, is_adapted=is_adapted
+            )
+            return self.repository.create(db=db, obj_in=history_in_create)
 
-        return self.repository.create(db=db, obj_in=history_in)
+        existing_history = self.repository.get_by_user_and_url(db=db, user_id=user_id, url=source_url)
+
+        if existing_history:
+            history_in_update = HistoryUpdate(
+                recipe_data=recipe_data,
+                source_url=source_url,
+                is_adapted=is_adapted
+            )
+            return self.repository.update(db=db, db_obj=existing_history, obj_in=history_in_update)
+        else:
+            history_in_create = HistoryCreate(
+                user_id=user_id, recipe_data=recipe_data, source_url=source_url, is_adapted=is_adapted
+            )
+            return self.repository.create(db=db, obj_in=history_in_create)
 
     def get_user_history(
         self,

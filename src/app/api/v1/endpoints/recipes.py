@@ -1,13 +1,14 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.core.database import get_db
+from app.core.security import get_optional_current_active_user
 from app.schemas.ingredient import IngredientInfoResponse
 from app.schemas.recipe import RecipeBase, RecipeSearchResult, ScrapeRequest, ScrapedRecipeData, RecipeAdaptationRequest, RecipeAdaptationResponse
 from app.schemas.task import TaskId
-from app.services import nutrition_service
+from app.services import history_service, nutrition_service
 from app.services.search_service import search_service
 from app.services.recipe_service import recipe_service
 from app.models.user import User
@@ -62,13 +63,27 @@ def get_ingredient_information_endpoint(
 
 @router.post("/scrape", response_model=ScrapedRecipeData, status_code=status.HTTP_200_OK)
 async def scrape_recipe_url_endpoint(
-    scrape_request: ScrapeRequest = Body(...)
+    scrape_request: ScrapeRequest = Body(...),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
     url = str(scrape_request.url)
-    print(f"Received request to SCRAPE URL: {url}")
     try:
         scraped_data = await scrape_and_analyze_recipe(url)
-        return ScrapedRecipeData(**scraped_data) if isinstance(scraped_data, dict) else scraped_data
+
+        if current_user and scraped_data and isinstance(scraped_data, dict):
+            history_service.history_service.add_to_history(
+                db=db, 
+                user_id=current_user.id, 
+                recipe_data=scraped_data,
+                source_url=url,
+                is_adapted=False
+            )
+        
+        if isinstance(scraped_data, dict):
+             return ScrapedRecipeData(**scraped_data)
+        return scraped_data
+    
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -129,7 +144,9 @@ def list_recipes_endpoint(
 
 @router.post("/adapt", response_model=RecipeAdaptationResponse, status_code=status.HTTP_200_OK)
 async def adapt_recipe_endpoint(
-    request: RecipeAdaptationRequest = Body(...)
+    request: RecipeAdaptationRequest = Body(...),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
     try:
         response_from_agent = ai_agents_service.adapt_recipe_interactively(request.model_dump())
@@ -146,6 +163,15 @@ async def adapt_recipe_endpoint(
             )
 
         validated_response = RecipeAdaptationResponse(**response_from_agent)
+
+        if current_user and validated_response.updated_recipe:
+            history_service.history_service.add_to_history(
+                db=db,
+                user_id=current_user.id,
+                recipe_data=validated_response.updated_recipe.model_dump(),
+                source_url=validated_response.updated_recipe.url,
+                is_adapted=True
+            )
 
         if validated_response.updated_recipe and validated_response.updated_recipe.ingredients:
             print("Re-calculating nutritional information for adapted recipe...")

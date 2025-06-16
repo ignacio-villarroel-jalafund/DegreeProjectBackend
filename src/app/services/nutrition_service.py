@@ -9,6 +9,10 @@ from app.schemas.recipe import NutritionInfo
 class NutritionService:
     def __init__(self):
         self.off_search_url = "https://es.openfoodfacts.org/cgi/search.pl"
+        self.nutritional_info_cache: Dict[str, Optional[Dict]] = {}
+        self.http_client = httpx.AsyncClient(timeout=10)
+        self.CONCURRENT_REQUESTS_LIMIT = 2
+        self.DELAY_BETWEEN_REQUESTS = 0.5
 
     def _parse_ingredient(self, ingredient_str: str) -> Tuple[Optional[float], str]:
         match = re.search(r'(\d[\d\s/.,]*)', ingredient_str)
@@ -31,27 +35,34 @@ class NutritionService:
         
         return quantity, name
 
-
     async def _get_nutritional_info_from_off(self, ingredient_name: str) -> Optional[Dict]:
+        if ingredient_name in self.nutritional_info_cache:
+            print(f"'{ingredient_name}' encontrado en caché.")
+            return self.nutritional_info_cache[ingredient_name]
+
         params = {
-            "search_terms": ingredient_name,
-            "search_simple": 1,
-            "action": "process",
-            "json": 1,
-            "page_size": 1
+            "search_terms": ingredient_name, "search_simple": 1, "action": "process",
+            "json": 1, "page_size": 1
         }
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(self.off_search_url, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                if data.get('products') and len(data['products']) > 0:
-                    product = data['products'][0]
-                    return product.get('nutriments')
-                return None
-            except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as e:
-                print(f"Error fetching data from Open Food Facts for '{ingredient_name}': {e}")
-                return None
+        
+        try:
+            print(f"Buscando en API para: '{ingredient_name}'")
+            response = await self.http_client.get(self.off_search_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            nutriments = None
+            if data.get('products') and len(data['products']) > 0:
+                product = data['products'][0]
+                nutriments = product.get('nutriments')
+
+            self.nutritional_info_cache[ingredient_name] = nutriments
+            return nutriments
+
+        except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as e:
+            print(f"Error fetching data from Open Food Facts for '{ingredient_name}': {e}")
+            self.nutritional_info_cache[ingredient_name] = None
+            return None
 
     async def calculate_nutritional_info_for_recipe(self, ingredients: List[str]) -> Optional[NutritionInfo]:
         if not ingredients:
@@ -64,36 +75,37 @@ class NutritionService:
             print("Error en la respuesta de n8n o la clave 'ingredients' no se encontró.")
             return None
 
-        enriched_ingredients_list = enriched_data['ingredients']
-
+        enriched_ingredients_list = enriched_data.get('ingredients', [])
         if not enriched_ingredients_list or not isinstance(enriched_ingredients_list, list):
             print("La lista 'ingredients' de n8n está vacía o no es una lista válida.")
             return None
 
-        total_nutrition = {
-            "calories": 0.0, "protein": 0.0, "carbohydrates": 0.0, "fat": 0.0
+        semaphore = asyncio.Semaphore(self.CONCURRENT_REQUESTS_LIMIT)
+        tasks = []
+
+        async def fetch_with_semaphore(ingredient_name: str) -> Optional[Dict]:
+            async with semaphore:
+                await asyncio.sleep(self.DELAY_BETWEEN_REQUESTS)
+                return await self._get_nutritional_info_from_off(ingredient_name)
+
+        unique_ingredient_names = {
+            item['name'] for item in enriched_ingredients_list if isinstance(item, dict) and item.get('name')
         }
         
-        for ingredient_obj in enriched_ingredients_list:
-            if not isinstance(ingredient_obj, dict) or 'name' not in ingredient_obj:
-                continue
-            
-            enriched_name = ingredient_obj['name']
+        for name in unique_ingredient_names:
+            tasks.append(fetch_with_semaphore(name))
+        
+        results = await asyncio.gather(*tasks)
 
-            if not enriched_name or not isinstance(enriched_name, str):
-                continue
-            
-            print(f"Buscando información para: '{enriched_name}'")
-            nutriments = await self._get_nutritional_info_from_off(enriched_name)
-            
+        total_nutrition = {"calories": 0.0, "protein": 0.0, "carbohydrates": 0.0, "fat": 0.0}
+        
+        for nutriments in results:
             if nutriments:
                 total_nutrition["calories"] += float(nutriments.get('energy-kcal_100g', 0.0) or 0.0)
                 total_nutrition["protein"] += float(nutriments.get('proteins_100g', 0.0) or 0.0)
                 total_nutrition["carbohydrates"] += float(nutriments.get('carbohydrates_100g', 0.0) or 0.0)
                 total_nutrition["fat"] += float(nutriments.get('fat_100g', 0.0) or 0.0)
-            
-            await asyncio.sleep(1)
         
         return NutritionInfo(**total_nutrition)
-    
+
 nutrition_service = NutritionService()
