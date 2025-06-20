@@ -28,20 +28,6 @@ class ScrapingService:
             directions = scraper.instructions_list()
 
             try:
-                cook_time = scraper.cook_time()
-            except ScraperExceptions.SchemaOrgException:
-                cook_time = 0
-            
-            try:
-                prep_time = scraper.prep_time()
-            except ScraperExceptions.SchemaOrgException:
-                prep_time = 0
-
-            try:
-                total_time = scraper.total_time()
-            except ScraperExceptions.SchemaOrgException:
-                total_time = 0
-            try:
                 servings = scraper.yields()
             except ScraperExceptions.SchemaOrgException:
                 servings = None
@@ -65,11 +51,6 @@ class ScrapingService:
                 "title": title,
                 "image_url": image_url,
                 "servings": servings,
-                "time": {
-                    "cookTime": cook_time,
-                    "prepTime": prep_time,
-                    "totalTime": total_time,
-                },
                 "ingredients": ingredients,
                 "directions": directions,
                 "url": url,

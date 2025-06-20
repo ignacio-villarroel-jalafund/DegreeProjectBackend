@@ -8,9 +8,6 @@ class Recipe(Base, BaseModel):
     __tablename__ = "recipes"
 
     recipe_name = Column(String, index=True, nullable=False)
-    prep_time = Column(Integer, nullable=True)
-    cook_time = Column(Integer, nullable=True)
-    total_time = Column(Integer, nullable=True)
     servings = Column(Integer, nullable=True)
     ingredients = Column(Text, nullable=False)
     directions = Column(Text, nullable=False)
