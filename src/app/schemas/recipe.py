@@ -32,11 +32,15 @@ class ScrapeRequest(BaseModel):
     url: HttpUrl
 
 class NutritionInfo(BaseModel):
-    calories: Optional[float] = Field(None, description="Calorías totales aproximadas (kcal).")
-    protein: Optional[float] = Field(None, description="Proteínas totales aproximadas (g).")
-    carbohydrates: Optional[float] = Field(None, description="Carbohidratos totales aproximados (g).")
-    fat: Optional[float] = Field(None, description="Grasas totales aproximadas (g).")
-    source: str = "Edamam Nutrition Analysis"
+    fat_total_g: float = Field(0.0, description="Grasas totales (g)")
+    fat_saturated_g: float = Field(0.0, description="Grasas saturadas (g)")
+    carbohydrates_total_g: float = Field(0.0, description="Carbohidratos totales (g)")
+    fiber_g: float = Field(0.0, description="Fibra dietética (g)")
+    sugar_g: float = Field(0.0, description="Azúcar (g)")
+    sodium_mg: float = Field(0.0, description="Sodio (mg)")
+    potassium_mg: float = Field(0.0, description="Potasio (mg)")
+    cholesterol_mg: float = Field(0.0, description="Colesterol (mg)")
+    source: str = Field("API Ninjas Nutrition (free plan)", description="Fuente de los datos nutricionales")
 
 class ScrapedRecipeData(BaseModel):
     title: Optional[str] = None

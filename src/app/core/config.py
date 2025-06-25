@@ -32,9 +32,7 @@ class Settings(BaseSettings):
 
     N8N_BASE_URL: str
 
-    EDAMAM_APP_ID: str
-    EDAMAM_APP_KEY: str
-    EDAMAM_NUTRITION_API_URL: str
+    API_NINJAS_KEY: str
 
     class Config:
         env_file = '.env'
