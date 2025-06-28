@@ -45,7 +45,7 @@ class NutritionService:
                 total.potassium_mg += float(item.get("potassium_mg", 0) or 0)
                 total.cholesterol_mg += float(item.get("cholesterol_mg", 0) or 0)
 
-            print("Nutritional info (free fields) computed successfully via API Ninjas.")
+            print("Nutritional info computed successfully via API Ninjas.")
             print("Información nutricional", total)
             return total
 

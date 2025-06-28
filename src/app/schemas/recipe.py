@@ -40,7 +40,7 @@ class NutritionInfo(BaseModel):
     sodium_mg: float = Field(0.0, description="Sodio (mg)")
     potassium_mg: float = Field(0.0, description="Potasio (mg)")
     cholesterol_mg: float = Field(0.0, description="Colesterol (mg)")
-    source: str = Field("API Ninjas Nutrition (free plan)", description="Fuente de los datos nutricionales")
+    source: str = Field("API Ninjas Nutrition", description="Fuente de los datos nutricionales")
 
 class ScrapedRecipeData(BaseModel):
     title: Optional[str] = None
