@@ -5,9 +5,9 @@ from typing import Annotated, List, Any
 from uuid import UUID
 
 from app.core.database import get_db
-from app.schemas.favorite import FavoriteBase as FavoriteSchema
+from app.schemas.favorite import FavoriteBase as FavoriteRead, FavoriteRecipeCreate
 from app.schemas.history import HistoryRead
-from app.schemas.recipe import RecipeBase as RecipeSchema
+from app.schemas.recipe import RecipeBase as RecipeRead
 from app.schemas.user import User, UserCreate, UserUpdateDetails, UserUpdatePassword
 from app.services import history_service
 from app.services.favorite_service import favorite_service
@@ -107,23 +107,29 @@ def update_user_password_endpoint(
             detail="An unexpected error occurred while updating the password.",
         )
 
-@router.post("/me/favorites/{recipe_id}", response_model=FavoriteSchema, status_code=status.HTTP_201_CREATED)
-def add_favorite_recipe_endpoint(
+@router.post("/me/favorites", response_model=FavoriteRead, status_code=status.HTTP_201_CREATED)
+def favorite_recipe_endpoint(
     *,
     db: Session = Depends(get_db),
-    recipe_id: UUID,
+    favorite_in: FavoriteRecipeCreate,
     current_user: UserModel = Depends(get_current_active_user)
 ):
     try:
-        favorite_model = favorite_service.add_favorite(db, recipe_id=recipe_id, user_id=current_user.id)
+        favorite_model = favorite_service.add_or_update_favorite(
+            db,
+            user_id=current_user.id,
+            recipe_data=favorite_in.recipe_data,
+            is_adapted=favorite_in.is_adapted
+        )
         return favorite_model
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-        elif "already favorite" in str(e).lower():
-             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-        else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
 
 @router.delete("/me/favorites/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_favorite_recipe_endpoint(
@@ -136,7 +142,8 @@ def remove_favorite_recipe_endpoint(
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Favorite not found for this user and recipe")
 
-@router.get("/me/favorites", response_model=List[RecipeSchema])
+
+@router.get("/me/favorites", response_model=List[RecipeRead])
 def get_favorite_recipes_endpoint(
     *,
     db: Session = Depends(get_db),
