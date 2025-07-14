@@ -63,7 +63,7 @@ class SearchService:
 
         return filtered_items
 
-    def search_recipes(self, query: str) -> List[Dict[str, Any]]:
+    def search_recipes(self, query: str, skip: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
         analysis_result = ai_agents_service.analyze_search_query(query)
 
         if isinstance(analysis_result, dict) and 'error' in analysis_result:
@@ -95,12 +95,15 @@ class SearchService:
 
         results = []
         try:
-            num_results_to_fetch = min(self.max_results, 10)
+            num_results_to_fetch = min(limit, 10)
+            start_index = skip + 1
+
             print(f"Searching for recipes with query: '{final_query}' using engine ID: {self.search_recipe_engine_id}")
             res = self.service.cse().list(
                 q=final_query,
                 cx=self.search_recipe_engine_id,
                 num=num_results_to_fetch,
+                start=start_index,
             ).execute()
 
             items_to_process = res.get('items', [])
@@ -116,7 +119,7 @@ class SearchService:
                         image_url = pagemap['cse_image'][0].get('src')
                     elif 'cse_thumbnail' in pagemap and pagemap['cse_thumbnail']:
                         image_url = pagemap['cse_thumbnail'][0].get('src')
-                
+
                 results.append({
                     "title": item.get('title'),
                     "url": item.get('link'),

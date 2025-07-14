@@ -13,7 +13,6 @@ class RecipeBase(BaseModel):
     servings: Optional[int] = None
     ingredients: str
     directions: str
-    rating: Optional[float] = None
     url: HttpUrl = None
     cuisine_path: Optional[str] = None
     nutrition: Optional[str] = None

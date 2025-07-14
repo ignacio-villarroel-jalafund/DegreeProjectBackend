@@ -1,12 +1,16 @@
 from typing import List, Optional
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import HttpUrl
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.core.database import get_db
 from app.core.security import get_optional_current_active_user
 from app.schemas.ingredient import IngredientInfoResponse
-from app.schemas.recipe import RecipeBase, RecipeSearchResult, ScrapeRequest, ScrapedRecipeData, RecipeAdaptationRequest, RecipeAdaptationResponse
+from app.schemas.recipe import (
+    RecipeBase, RecipeSearchResult, ScrapedRecipeData,
+    RecipeAdaptationRequest, RecipeAdaptationResponse
+)
 from app.schemas.task import TaskId
 from app.services import history_service, nutrition_service
 from app.services.search_service import search_service
@@ -20,12 +24,14 @@ router = APIRouter()
 @router.get("/search", response_model=List[RecipeSearchResult])
 def search_recipes_endpoint(
     query: str = Query(..., min_length=3,
-                       description="Search term for recipes")
+                       description="Search term for recipes"),
+    skip: int = 0,
+    limit: int = 10
 ):
     if not query:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Search term cannot be empty.")
-    results = search_service.search_recipes(query)
+    results = search_service.search_recipes(query, skip=skip, limit=limit)
     if not results:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="No recipes found for that search.")
@@ -49,7 +55,7 @@ def get_ingredient_information_endpoint(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Could not extract or find information for the ingredient from the provided text."
             )
-        
+
         return IngredientInfoResponse(**ingredient_data_dict)
 
     except HTTPException as e:
@@ -61,29 +67,29 @@ def get_ingredient_information_endpoint(
             detail=f"An unexpected error occurred: {str(e)}"
         )
 
-@router.post("/scrape", response_model=ScrapedRecipeData, status_code=status.HTTP_200_OK)
+@router.get("/scrape", response_model=ScrapedRecipeData, status_code=status.HTTP_200_OK)
 async def scrape_recipe_url_endpoint(
-    scrape_request: ScrapeRequest = Body(...),
+    url: HttpUrl = Query(..., description="The URL of the recipe to scrape"),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
-    url = str(scrape_request.url)
+    url_str = str(url)
     try:
-        scraped_data = await scrape_and_analyze_recipe(url)
+        scraped_data = await scrape_and_analyze_recipe(url_str)
 
         if current_user and scraped_data and isinstance(scraped_data, dict):
             history_service.history_service.add_to_history(
-                db=db, 
-                user_id=current_user.id, 
+                db=db,
+                user_id=current_user.id,
                 recipe_data=scraped_data,
-                source_url=url,
+                source_url=url_str,
                 is_adapted=False
             )
-        
+
         if isinstance(scraped_data, dict):
              return ScrapedRecipeData(**scraped_data)
         return scraped_data
-    
+
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -101,7 +107,7 @@ async def scrape_recipe_url_endpoint(
 
 @router.post("/analyze", response_model=TaskId, status_code=status.HTTP_202_ACCEPTED)
 async def analyze_scraped_recipe_endpoint(
-    scraped_data: ScrapedRecipeData = Body(...)
+    scraped_data: ScrapedRecipeData
 ):
     print(f"Received request to ANALYZE recipe: {scraped_data.recipe_name}")
 
@@ -144,7 +150,7 @@ def list_recipes_endpoint(
 
 @router.post("/adapt", response_model=RecipeAdaptationResponse, status_code=status.HTTP_200_OK)
 async def adapt_recipe_endpoint(
-    request: RecipeAdaptationRequest = Body(...),
+    request: RecipeAdaptationRequest,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
