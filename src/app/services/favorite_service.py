@@ -16,52 +16,87 @@ class FavoriteService:
         self.recipe_repo = recipe_repo
 
     def add_or_update_favorite(self, db: Session, user_id: UUID, recipe_data: ScrapedRecipeData, is_adapted: bool) -> Favorite:
+        print("Starting `add_or_update_favorite`")
         recipe_to_favorite = None
 
-        if not is_adapted and recipe_data.url:
-            recipe_to_favorite = self.recipe_repo.get_by_url(db, url=str(recipe_data.url))
+        try:
+            if not is_adapted and recipe_data.url:
+                print(f"Searching recipe by URL: {recipe_data.url}")
+                recipe_to_favorite = self.recipe_repo.get_by_url(db, url=str(recipe_data.url))
+        except Exception as e:
+            print(f"Error getting recipe by URL: {e}")
 
         if recipe_to_favorite is None:
-            create_data = RecipeCreate(
-                recipe_name=recipe_data.title,
-                servings=recipe_data.servings,
-                ingredients="\n".join(recipe_data.ingredients) if recipe_data.ingredients else "",
-                directions="\n".join(recipe_data.directions) if recipe_data.directions else "",
-                url=str(recipe_data.url) if recipe_data.url else None,
-                img_src=str(recipe_data.image_url) if recipe_data.image_url else None,
-                nutrition=recipe_data.nutrition.model_dump_json() if recipe_data.nutrition else None,
-                cuisine_path=None
+            print("Recipe not found. Creating a new one.")
+            try:
+                create_data = RecipeCreate(
+                    recipe_name=recipe_data.title,
+                    servings=recipe_data.servings,
+                    ingredients="\n".join(recipe_data.ingredients) if recipe_data.ingredients else "",
+                    directions="\n".join(recipe_data.directions) if recipe_data.directions else "",
+                    url=str(recipe_data.url) if recipe_data.url else None,
+                    img_src=str(recipe_data.image_url) if recipe_data.image_url else None,
+                    nutrition=recipe_data.nutrition.model_dump_json() if recipe_data.nutrition else None,
+                    cuisine_path=None
+                )
+                recipe_to_favorite = self.recipe_repo.create(db=db, obj_in=create_data)
+                print(f"Recipe created with ID: {recipe_to_favorite.id}")
+            except Exception as e:
+                print(f"Error creating recipe: {e}")
+                raise
+
+        try:
+            print(f"Checking if recipe is already in user {user_id}'s favorites")
+            existing_favorite = self.favorite_repo.get_by_user_and_recipe(
+                db=db, user_id=user_id, recipe_id=recipe_to_favorite.id
             )
-            recipe_to_favorite = self.recipe_repo.create(db=db, obj_in=create_data)
+            if existing_favorite:
+                print("Recipe already in favorites. Returning existing.")
+                return existing_favorite
+        except Exception as e:
+            print(f"Error checking existing favorites: {e}")
+            raise
 
-        existing_favorite = self.favorite_repo.get_by_user_and_recipe(
-            db=db, user_id=user_id, recipe_id=recipe_to_favorite.id
-        )
+        try:
+            print("Adding recipe to favorites...")
+            fav_schema = FavoriteCreate(recipe_id=recipe_to_favorite.id)
+            fav_data = fav_schema.model_dump()
+            fav_data['user_id'] = user_id
 
-        if existing_favorite:
-            return existing_favorite
-
-        fav_schema = FavoriteCreate(recipe_id=recipe_to_favorite.id)
-        fav_data = fav_schema.model_dump()
-        fav_data['user_id'] = user_id
-        
-        db_obj = self.favorite_repo.model(**fav_data)
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
-        return db_obj
-
+            db_obj = self.favorite_repo.model(**fav_data)
+            db.add(db_obj)
+            db.commit()
+            db.refresh(db_obj)
+            print(f"Favorite added with ID: {db_obj.id}")
+            return db_obj
+        except Exception as e:
+            print(f"Error adding favorite: {e}")
+            db.rollback()
+            raise
 
     def remove_favorite(self, db: Session, recipe_id: UUID, user_id: UUID) -> bool:
-        favorite = self.favorite_repo.get_by_user_and_recipe(db=db, user_id=user_id, recipe_id=recipe_id)
-        if favorite:
-            self.favorite_repo.remove(db=db, id=favorite.id)
-            return True
-        return False
+        print(f"Trying to remove favorite (user: {user_id}, recipe: {recipe_id})")
+        try:
+            favorite = self.favorite_repo.get_by_user_and_recipe(db=db, user_id=user_id, recipe_id=recipe_id)
+            if favorite:
+                self.favorite_repo.remove(db=db, id=favorite.id)
+                print("Favorite removed.")
+                return True
+            print("No favorite found to remove.")
+            return False
+        except Exception as e:
+            print(f"Error removing favorite: {e}")
+            return False
 
     def get_favorites(self, db: Session, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Recipe]:
-        favorites_assoc = self.favorite_repo.get_user_favorites(db=db, user_id=user_id, skip=skip, limit=limit)
-        return [fav.recipe for fav in favorites_assoc]
+        print(f"Getting favorites for user {user_id} (skip={skip}, limit={limit})")
+        try:
+            favorites_assoc = self.favorite_repo.get_user_favorites(db=db, user_id=user_id, skip=skip, limit=limit)
+            print(f"Retrieved {len(favorites_assoc)} favorites.")
+            return [fav.recipe for fav in favorites_assoc]
+        except Exception as e:
+            print(f"Error getting favorites: {e}")
+            return []
 
 
 favorite_service = FavoriteService(favorite_repository, recipe_repository)

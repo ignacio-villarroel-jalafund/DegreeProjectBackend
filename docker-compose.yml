@@ -65,18 +65,35 @@ services:
     env_file:
       - .env
     depends_on:
-      redis:
-        condition: service_healthy
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - recipe_network
     restart: unless-stopped
 
-networks:
-  recipe_network:
-    driver: bridge
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - GENERIC_TIMEZONE=America/New_York
+    volumes:
+      - /home/fundacion/Desktop/n8n_backup/.n8n:/home/node/.n8n
+    networks:
+      - recipe_network
+    depends_on:
+      - db
+      - redis
 
 volumes:
   postgres_data:
   ollama_data:
+  n8n_data:
+
+networks:
+  recipe_network:
+    driver: bridge
