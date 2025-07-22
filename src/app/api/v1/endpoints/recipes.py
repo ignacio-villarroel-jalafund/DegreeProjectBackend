@@ -6,6 +6,7 @@ from uuid import UUID
 
 from app.core.database import get_db
 from app.core.security import get_optional_current_active_user
+from app.schemas.ai import ShortAdaptationRequest, ShortRecipe
 from app.schemas.ingredient import IngredientInfoResponse
 from app.schemas.recipe import (
     RecipeBase, RecipeSearchResult, ScrapedRecipeData,
@@ -20,6 +21,7 @@ from app.tasks.recipe_tasks import scrape_and_analyze_recipe
 from app.services.ai_agents_service import ai_agents_service
 
 router = APIRouter()
+
 
 @router.get("/search", response_model=List[RecipeSearchResult])
 def search_recipes_endpoint(
@@ -37,9 +39,11 @@ def search_recipes_endpoint(
                             detail="No recipes found for that search.")
     return results
 
+
 @router.get("/ingredient-info", response_model=IngredientInfoResponse)
 def get_ingredient_information_endpoint(
-    text_query: str = Query(..., min_length=1, description="Text to extract ingredient from and get info")
+    text_query: str = Query(..., min_length=1,
+                            description="Text to extract ingredient from and get info")
 ):
     if not text_query.strip():
         raise HTTPException(
@@ -67,6 +71,7 @@ def get_ingredient_information_endpoint(
             detail=f"An unexpected error occurred: {str(e)}"
         )
 
+
 @router.get("/scrape", response_model=ScrapedRecipeData, status_code=status.HTTP_200_OK)
 async def scrape_recipe_url_endpoint(
     url: HttpUrl = Query(..., description="The URL of the recipe to scrape"),
@@ -87,7 +92,7 @@ async def scrape_recipe_url_endpoint(
             )
 
         if isinstance(scraped_data, dict):
-             return ScrapedRecipeData(**scraped_data)
+            return ScrapedRecipeData(**scraped_data)
         return scraped_data
 
     except ValueError as e:
@@ -148,6 +153,7 @@ def list_recipes_endpoint(
     recipes = recipe_service.get_all_recipes(db, skip=skip, limit=limit)
     return recipes
 
+
 @router.post("/adapt", response_model=RecipeAdaptationResponse, status_code=status.HTTP_200_OK)
 async def adapt_recipe_endpoint(
     request: RecipeAdaptationRequest,
@@ -155,20 +161,39 @@ async def adapt_recipe_endpoint(
     current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
     try:
-        response_from_agent = ai_agents_service.adapt_recipe_interactively(request.model_dump())
+        recipe_for_ai = ShortRecipe(
+            title=request.recipe_data.title,
+            servings=request.recipe_data.servings,
+            ingredients=request.recipe_data.ingredients,
+            directions=request.recipe_data.directions
+        )
+
+        ai_payload = ShortAdaptationRequest(
+            recipe_data=recipe_for_ai,
+            adaptation=request.adaptation
+        )
+
+        response_from_agent = ai_agents_service.adapt_recipe_interactively(
+            ai_payload.model_dump())
 
         if not isinstance(response_from_agent, dict):
-            print(f"Adaptation agent returned an invalid format: {response_from_agent}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="AI service returned an unexpected response format.")
+            print(
+                f"Adaptation agent returned an invalid format: {response_from_agent}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail="AI service returned an unexpected response format.")
 
         if 'error' in response_from_agent:
-            print(f"Adaptation agent failed: {response_from_agent.get('details')}")
+            print(
+                f"Adaptation agent failed: {response_from_agent.get('details')}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"The AI service could not process the adaptation: {response_from_agent.get('details', 'Unknown AI error')}"
             )
 
         validated_response = RecipeAdaptationResponse(**response_from_agent)
+
+        validated_response.updated_recipe.image_url = request.recipe_data.image_url
+        validated_response.updated_recipe.url = request.recipe_data.url
 
         if current_user and validated_response.updated_recipe:
             history_service.history_service.add_to_history(
