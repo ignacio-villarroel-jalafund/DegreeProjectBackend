@@ -59,7 +59,6 @@ class RecipeRead(RecipeBase):
         from_attributes = True
 
 AnalysisType = Literal[
-    "SUBSTITUTE_INGREDIENT", 
     "ADAPT_DIET", 
     "SCALE_PORTIONS"
 ]

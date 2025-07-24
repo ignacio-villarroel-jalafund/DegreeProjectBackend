@@ -176,48 +176,47 @@ async def adapt_recipe_endpoint(
         response_from_agent = ai_agents_service.adapt_recipe_interactively(
             ai_payload.model_dump())
 
-        if not isinstance(response_from_agent, dict):
-            print(
-                f"Adaptation agent returned an invalid format: {response_from_agent}")
+        if not isinstance(response_from_agent, dict) or 'recipe_data' not in response_from_agent:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                detail="AI service returned an unexpected response format.")
+                                detail="AI service returned an invalid response format.")
 
         if 'error' in response_from_agent:
-            print(
-                f"Adaptation agent failed: {response_from_agent.get('details')}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"The AI service could not process the adaptation: {response_from_agent.get('details', 'Unknown AI error')}"
+                detail=f"AI service failed: {response_from_agent.get('details', 'Unknown AI error')}"
             )
 
-        validated_response = RecipeAdaptationResponse(**response_from_agent)
+        adapted_data_from_ai = response_from_agent['recipe_data']
 
-        validated_response.updated_recipe.image_url = request.recipe_data.image_url
-        validated_response.updated_recipe.url = request.recipe_data.url
+        full_adapted_recipe_data = adapted_data_from_ai.copy()
+        full_adapted_recipe_data['image_url'] = request.recipe_data.image_url
+        full_adapted_recipe_data['url'] = request.recipe_data.url
+        full_adapted_recipe_data['nutrition'] = request.recipe_data.nutrition
+
+        response_payload = {"updated_recipe": full_adapted_recipe_data}
+        
+        validated_response = RecipeAdaptationResponse(**response_payload)
 
         if current_user and validated_response.updated_recipe:
             history_service.history_service.add_to_history(
                 db=db,
                 user_id=current_user.id,
                 recipe_data=validated_response.updated_recipe.model_dump(),
-                source_url=validated_response.updated_recipe.url,
+                source_url=str(validated_response.updated_recipe.url) if validated_response.updated_recipe.url else None,
                 is_adapted=True
             )
 
         if validated_response.updated_recipe and validated_response.updated_recipe.ingredients:
-            print("Re-calculating nutritional information for adapted recipe...")
             new_nutritional_info = await nutrition_service.nutrition_service.calculate_nutritional_info_for_recipe(
                 ingredients=validated_response.updated_recipe.ingredients
             )
             validated_response.updated_recipe.nutrition = new_nutritional_info
-            print("Nutritional information for adapted recipe calculated.")
 
         return validated_response
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        print(f"Unexpected error in /adapt endpoint: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error processing the adaptation request: {str(e)}"
