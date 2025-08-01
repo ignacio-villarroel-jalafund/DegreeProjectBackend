@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     API_NINJAS_KEY: str
 
+    MODEL_STORAGE_PATH: str = "trained_models"
+
     class Config:
         env_file = '.env'
         env_file_encoding = 'utf-8'

@@ -5,6 +5,7 @@ psycopg2-binary
 pydantic[email]
 pydantic-settings
 passlib[bcrypt]
+bcrypt==3.2.2
 python-jose[cryptography]
 python-multipart
 httpx
@@ -18,3 +19,7 @@ gevent
 google-api-python-client
 unidecode
 requests
+pandas
+scikit-surprise
+numpy==1.26.4
+scikit-learn
