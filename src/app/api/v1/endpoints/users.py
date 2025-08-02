@@ -7,7 +7,7 @@ from uuid import UUID
 from app.core.database import get_db
 from app.schemas.favorite import FavoriteBase as FavoriteRead, FavoriteRecipeCreate
 from app.schemas.history import HistoryRead
-from app.schemas.recipe import RecipeBase as RecipeRead
+from app.schemas.recipe import RecipeRead
 from app.schemas.user import User, UserCreate, UserUpdateDetails, UserUpdatePassword
 from app.services import history_service
 from app.services.favorite_service import favorite_service
@@ -138,9 +138,19 @@ def remove_favorite_recipe_endpoint(
     recipe_id: UUID,
     current_user: UserModel = Depends(get_current_active_user)
 ):
-    deleted = favorite_service.remove_favorite(db, recipe_id=recipe_id, user_id=current_user.id)
+    deleted = favorite_service.remove_favorite(
+        db, 
+        recipe_id=recipe_id, 
+        user_id=current_user.id
+    )
+    
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Favorite not found for this user and recipe")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Favorite not found for this user and recipe"
+        )
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me/favorites", response_model=List[RecipeRead])

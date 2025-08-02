@@ -75,17 +75,32 @@ class FavoriteService:
             raise
 
     def remove_favorite(self, db: Session, recipe_id: UUID, user_id: UUID) -> bool:
-        print(f"Trying to remove favorite (user: {user_id}, recipe: {recipe_id})")
+        print(f"--- Servicio: Intentando remover favorito (user: {user_id}, recipe: {recipe_id})")
+        
         try:
-            favorite = self.favorite_repo.get_by_user_and_recipe(db=db, user_id=user_id, recipe_id=recipe_id)
+            favorite = self.favorite_repo.get_by_user_and_recipe(
+                db=db, user_id=user_id, recipe_id=recipe_id
+            )
+            
             if favorite:
-                self.favorite_repo.remove(db=db, id=favorite.id)
-                print("Favorite removed.")
-                return True
-            print("No favorite found to remove.")
-            return False
+                print(f"--- Servicio: Favorito encontrado (ID: {favorite.id}). Procediendo a eliminar.")
+                
+                deleted_in_repo = self.favorite_repo.delete_favorite(
+                    db=db, user_id=user_id, recipe_id=recipe_id
+                )
+
+                if deleted_in_repo:
+                    print("--- Servicio: El repositorio confirmó la eliminación.")
+                    return True
+                else:
+                    print("--- Servicio: El repositorio no pudo eliminar el favorito, aunque fue encontrado.")
+                    return False
+            else:
+                print("--- Servicio: No se encontró un favorito que coincida para eliminar.")
+                return False
         except Exception as e:
-            print(f"Error removing favorite: {e}")
+            print(f"--- Servicio: Ocurrió un error al intentar eliminar el favorito: {e}")
+            db.rollback()
             return False
 
     def get_favorites(self, db: Session, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Recipe]:
