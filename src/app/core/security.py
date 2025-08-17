@@ -4,7 +4,7 @@ from typing import Optional, Any, Dict, Union
 from jose import JWTError, jwt
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -110,3 +110,40 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     if not verify_password(password, user.password):
         return None
     return user
+
+async def get_optional_current_active_user(
+    request: Request, db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Dependency that optionally retrieves the current active user from the
+    Authorization header.
+
+    Returns 'None' if the token is missing, invalid, or if the user is inactive,
+    instead of raising an HTTP error. This allows endpoints to be public
+    but with extended functionalities for authenticated users.
+    """
+    auth_header = request.headers.get("Authorization")
+    
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+    
+    token = auth_header.split("Bearer ")[1]
+
+    try:
+        payload = decode_access_token(token)
+        if payload is None:
+            return None
+            
+        user_id_str = payload.get("sub")
+        if user_id_str is None:
+            return None
+
+        user_id = UUID(user_id_str)
+        user = user_repository.get(db, id=user_id)
+
+        if user and user.is_active:
+            return user
+        else:
+            return None
+    except (JWTError, ValueError, Exception):
+        return None

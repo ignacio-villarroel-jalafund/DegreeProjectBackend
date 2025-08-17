@@ -10,13 +10,9 @@ class RecipeSearchResult(BaseModel):
 
 class RecipeBase(BaseModel):
     recipe_name: str
-    prep_time: Optional[int] = None
-    cook_time: Optional[int] = None
-    total_time: Optional[int] = None
     servings: Optional[int] = None
     ingredients: str
     directions: str
-    rating: Optional[float] = None
     url: HttpUrl = None
     cuisine_path: Optional[str] = None
     nutrition: Optional[str] = None
@@ -34,19 +30,25 @@ class RecipeUpdate(RecipeBase):
 class ScrapeRequest(BaseModel):
     url: HttpUrl
 
-class RecipeTime(BaseModel):
-    cookTime: Optional[int] = None
-    prepTime: Optional[int] = None
-    totalTime: Optional[int] = None
+class NutritionInfo(BaseModel):
+    fat_total_g: float = Field(0.0, description="Grasas totales (g)")
+    fat_saturated_g: float = Field(0.0, description="Grasas saturadas (g)")
+    carbohydrates_total_g: float = Field(0.0, description="Carbohidratos totales (g)")
+    fiber_g: float = Field(0.0, description="Fibra dietética (g)")
+    sugar_g: float = Field(0.0, description="Azúcar (g)")
+    sodium_mg: float = Field(0.0, description="Sodio (mg)")
+    potassium_mg: float = Field(0.0, description="Potasio (mg)")
+    cholesterol_mg: float = Field(0.0, description="Colesterol (mg)")
+    source: str = Field("API Ninjas Nutrition", description="Fuente de los datos nutricionales")
 
 class ScrapedRecipeData(BaseModel):
     title: Optional[str] = None
     image_url: Optional[str] = None
     servings: Optional[int] = None
-    time: Optional[RecipeTime] = None 
     ingredients: Optional[List[str]] = []
     directions: Optional[List[str]] = []
     url: Optional[str] = None
+    nutrition: Optional[NutritionInfo] = None
 
 class RecipeRead(RecipeBase):   
     id: uuid.UUID
@@ -57,7 +59,6 @@ class RecipeRead(RecipeBase):
         from_attributes = True
 
 AnalysisType = Literal[
-    "SUBSTITUTE_INGREDIENT", 
     "ADAPT_DIET", 
     "SCALE_PORTIONS"
 ]
@@ -72,3 +73,4 @@ class RecipeAdaptationRequest(BaseModel):
 
 class RecipeAdaptationResponse(BaseModel):
     updated_recipe: ScrapedRecipeData = Field(..., description="The complete recipe with the applied modifications.")
+

@@ -29,3 +29,5 @@ build/
 # IDE folders
 .idea/
 .vscode/
+
+trained_models/
