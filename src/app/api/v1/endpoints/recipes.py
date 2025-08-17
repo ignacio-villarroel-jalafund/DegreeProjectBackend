@@ -1,40 +1,49 @@
-from typing import List
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import HttpUrl
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.core.database import get_db
+from app.core.security import get_optional_current_active_user
+from app.schemas.ai import ShortAdaptationRequest, ShortRecipe
 from app.schemas.ingredient import IngredientInfoResponse
-from app.schemas.recipe import RecipeBase, RecipeSearchResult, ScrapeRequest, ScrapedRecipeData, RecipeAdaptationRequest, RecipeAdaptationResponse
+from app.schemas.recipe import (
+    RecipeBase, RecipeSearchResult, ScrapedRecipeData,
+    RecipeAdaptationRequest, RecipeAdaptationResponse
+)
 from app.schemas.task import TaskId
+from app.services import history_service, nutrition_service
 from app.services.search_service import search_service
 from app.services.recipe_service import recipe_service
-from app.models.user import User as UserModel
-from app.schemas.rating import RatingBase, RatingCreate
-from app.services.rating_service import rating_service
-from app.core.security import get_current_active_user
+from app.models.user import User
 from app.tasks.recipe_tasks import scrape_and_analyze_recipe
 from app.services.ai_agents_service import ai_agents_service
 
 router = APIRouter()
 
+
 @router.get("/search", response_model=List[RecipeSearchResult])
 def search_recipes_endpoint(
     query: str = Query(..., min_length=3,
-                       description="Search term for recipes")
+                       description="Search term for recipes"),
+    skip: int = 0,
+    limit: int = 10
 ):
     if not query:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Search term cannot be empty.")
-    results = search_service.search_recipes(query)
+    results = search_service.search_recipes(query, skip=skip, limit=limit)
     if not results:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="No recipes found for that search.")
     return results
 
+
 @router.get("/ingredient-info", response_model=IngredientInfoResponse)
 def get_ingredient_information_endpoint(
-    text_query: str = Query(..., min_length=1, description="Text to extract ingredient from and get info")
+    text_query: str = Query(..., min_length=1,
+                            description="Text to extract ingredient from and get info")
 ):
     if not text_query.strip():
         raise HTTPException(
@@ -50,7 +59,7 @@ def get_ingredient_information_endpoint(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Could not extract or find information for the ingredient from the provided text."
             )
-        
+
         return IngredientInfoResponse(**ingredient_data_dict)
 
     except HTTPException as e:
@@ -62,15 +71,30 @@ def get_ingredient_information_endpoint(
             detail=f"An unexpected error occurred: {str(e)}"
         )
 
-@router.post("/scrape", response_model=ScrapedRecipeData, status_code=status.HTTP_200_OK)
+
+@router.get("/scrape", response_model=ScrapedRecipeData, status_code=status.HTTP_200_OK)
 async def scrape_recipe_url_endpoint(
-    scrape_request: ScrapeRequest = Body(...)
+    url: HttpUrl = Query(..., description="The URL of the recipe to scrape"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
-    url = str(scrape_request.url)
-    print(f"Received request to SCRAPE URL: {url}")
+    url_str = str(url)
     try:
-        scraped_data = await scrape_and_analyze_recipe(url)
-        return ScrapedRecipeData(**scraped_data) if isinstance(scraped_data, dict) else scraped_data
+        scraped_data = await scrape_and_analyze_recipe(url_str)
+
+        if current_user and scraped_data and isinstance(scraped_data, dict):
+            history_service.history_service.add_to_history(
+                db=db,
+                user_id=current_user.id,
+                recipe_data=scraped_data,
+                source_url=url_str,
+                is_adapted=False
+            )
+
+        if isinstance(scraped_data, dict):
+            return ScrapedRecipeData(**scraped_data)
+        return scraped_data
+
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -88,7 +112,7 @@ async def scrape_recipe_url_endpoint(
 
 @router.post("/analyze", response_model=TaskId, status_code=status.HTTP_202_ACCEPTED)
 async def analyze_scraped_recipe_endpoint(
-    scraped_data: ScrapedRecipeData = Body(...)
+    scraped_data: ScrapedRecipeData
 ):
     print(f"Received request to ANALYZE recipe: {scraped_data.recipe_name}")
 
@@ -119,30 +143,6 @@ def read_recipe_endpoint(
     return db_recipe
 
 
-@router.post("/{recipe_id}/rate", response_model=RatingBase, status_code=status.HTTP_201_CREATED)
-def rate_recipe_endpoint(
-    *,
-    db: Session = Depends(get_db),
-    recipe_id: UUID,
-    rating_in: RatingCreate,
-    current_user: UserModel = Depends(get_current_active_user)
-):
-    try:
-        rating = rating_service.rate_recipe(
-            db, rating_in=rating_in, recipe_id=recipe_id, user_id=current_user.id)
-        return rating
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-        elif "already rated" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=str(e))
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
 @router.get("/", response_model=List[RecipeBase])
 def list_recipes_endpoint(
     *,
@@ -153,32 +153,70 @@ def list_recipes_endpoint(
     recipes = recipe_service.get_all_recipes(db, skip=skip, limit=limit)
     return recipes
 
+
 @router.post("/adapt", response_model=RecipeAdaptationResponse, status_code=status.HTTP_200_OK)
-def adapt_recipe_endpoint(
-    request: RecipeAdaptationRequest = Body(...)
+async def adapt_recipe_endpoint(
+    request: RecipeAdaptationRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
     try:
-        response_from_agent = ai_agents_service.adapt_recipe_interactively(request.model_dump())
+        recipe_for_ai = ShortRecipe(
+            title=request.recipe_data.title,
+            servings=request.recipe_data.servings,
+            ingredients=request.recipe_data.ingredients,
+            directions=request.recipe_data.directions
+        )
 
-        if not isinstance(response_from_agent, dict):
-            print(f"Adaptation agent returned an invalid format: {response_from_agent}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="AI service returned an unexpected response format.")
+        ai_payload = ShortAdaptationRequest(
+            recipe_data=recipe_for_ai,
+            adaptation=request.adaptation
+        )
+
+        response_from_agent = ai_agents_service.adapt_recipe_interactively(
+            ai_payload.model_dump())
+
+        if not isinstance(response_from_agent, dict) or 'recipe_data' not in response_from_agent:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail="AI service returned an invalid response format.")
 
         if 'error' in response_from_agent:
-            print(f"Adaptation agent failed: {response_from_agent.get('details')}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"The AI service could not process the adaptation: {response_from_agent.get('details', 'Unknown AI error')}"
+                detail=f"AI service failed: {response_from_agent.get('details', 'Unknown AI error')}"
             )
 
-        validated_response = RecipeAdaptationResponse(**response_from_agent)
+        adapted_data_from_ai = response_from_agent['recipe_data']
+
+        full_adapted_recipe_data = adapted_data_from_ai.copy()
+        full_adapted_recipe_data['image_url'] = request.recipe_data.image_url
+        full_adapted_recipe_data['url'] = request.recipe_data.url
+        full_adapted_recipe_data['nutrition'] = request.recipe_data.nutrition
+
+        response_payload = {"updated_recipe": full_adapted_recipe_data}
+        
+        validated_response = RecipeAdaptationResponse(**response_payload)
+
+        if current_user and validated_response.updated_recipe:
+            history_service.history_service.add_to_history(
+                db=db,
+                user_id=current_user.id,
+                recipe_data=validated_response.updated_recipe.model_dump(),
+                source_url=str(validated_response.updated_recipe.url) if validated_response.updated_recipe.url else None,
+                is_adapted=True
+            )
+
+        if validated_response.updated_recipe and validated_response.updated_recipe.ingredients:
+            new_nutritional_info = await nutrition_service.nutrition_service.calculate_nutritional_info_for_recipe(
+                ingredients=validated_response.updated_recipe.ingredients
+            )
+            validated_response.updated_recipe.nutrition = new_nutritional_info
 
         return validated_response
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        print(f"Unexpected error in /adapt endpoint: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error processing the adaptation request: {str(e)}"

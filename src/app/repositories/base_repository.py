@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
@@ -43,6 +44,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         for field in obj_data:
             if field in update_data:
                 setattr(db_obj, field, update_data[field])
+        db_obj.updated_at = datetime.utcnow()
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)

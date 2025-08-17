@@ -1,14 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Annotated, List, Any
 from uuid import UUID
 
 from app.core.database import get_db
-from app.schemas.favorite import FavoriteBase as FavoriteSchema
-from app.schemas.recipe import RecipeBase as RecipeSchema
-from app.schemas.user import User, UserCreate
-
+from app.schemas.favorite import FavoriteBase as FavoriteRead, FavoriteRecipeCreate
+from app.schemas.history import HistoryRead
+from app.schemas.recipe import RecipeRead
+from app.schemas.user import User, UserCreate, UserUpdateDetails, UserUpdatePassword
+from app.services import history_service
 from app.services.favorite_service import favorite_service
 from app.services.user_service import user_service
 from app.core.security import (
@@ -47,6 +48,14 @@ def create_user_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email is already registered.",
         )
+    
+    db_user_username = user_service.repository.get_by_username(db, username=user_in.username)
+    if db_user_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username is already registered.",
+        )
+
     user = user_service.create_user(db=db, user_in=user_in)
     return user
 
@@ -56,23 +65,71 @@ def read_users_me(
 ):
     return current_user
 
-@router.post("/me/favorites/{recipe_id}", response_model=FavoriteSchema, status_code=status.HTTP_201_CREATED)
-def add_favorite_recipe_endpoint(
+@router.put("/me/details", response_model=User)
+def update_user_details_endpoint(
     *,
     db: Session = Depends(get_db),
-    recipe_id: UUID,
+    user_in: UserUpdateDetails,
     current_user: UserModel = Depends(get_current_active_user)
 ):
     try:
-        favorite_model = favorite_service.add_favorite(db, recipe_id=recipe_id, user_id=current_user.id)
+        updated_user = user_service.update_user_details(db=db, db_user=current_user, user_in=user_in)
+        return updated_user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+@router.put("/me/password")
+def update_user_password_endpoint(
+    *,
+    db: Session = Depends(get_db),
+    password_in: UserUpdatePassword,
+    current_user: UserModel = Depends(get_current_active_user)
+):
+    try:
+        success = user_service.update_user_password(db=db, db_user=current_user, password_in=password_in)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Incorrect current password.",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while updating the password.",
+        )
+
+@router.post("/me/favorites", response_model=FavoriteRead, status_code=status.HTTP_201_CREATED)
+def favorite_recipe_endpoint(
+    *,
+    db: Session = Depends(get_db),
+    favorite_in: FavoriteRecipeCreate,
+    current_user: UserModel = Depends(get_current_active_user)
+):
+    try:
+        favorite_model = favorite_service.add_or_update_favorite(
+            db,
+            user_id=current_user.id,
+            recipe_data=favorite_in.recipe_data,
+            is_adapted=favorite_in.is_adapted
+        )
         return favorite_model
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-        elif "already favorite" in str(e).lower():
-             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-        else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
 
 @router.delete("/me/favorites/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_favorite_recipe_endpoint(
@@ -81,11 +138,22 @@ def remove_favorite_recipe_endpoint(
     recipe_id: UUID,
     current_user: UserModel = Depends(get_current_active_user)
 ):
-    deleted = favorite_service.remove_favorite(db, recipe_id=recipe_id, user_id=current_user.id)
+    deleted = favorite_service.remove_favorite(
+        db, 
+        recipe_id=recipe_id, 
+        user_id=current_user.id
+    )
+    
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Favorite not found for this user and recipe")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Favorite not found for this user and recipe"
+        )
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@router.get("/me/favorites", response_model=List[RecipeSchema])
+
+@router.get("/me/favorites", response_model=List[RecipeRead])
 def get_favorite_recipes_endpoint(
     *,
     db: Session = Depends(get_db),
@@ -95,3 +163,14 @@ def get_favorite_recipes_endpoint(
 ):
     recipes = favorite_service.get_favorites(db, user_id=current_user.id, skip=skip, limit=limit)
     return recipes
+
+@router.get("/me/history", response_model=List[HistoryRead])
+def get_user_history_endpoint(
+    *,
+    db: Session = Depends(get_db),
+    skip: int = 0,
+    limit: int = 20,
+    current_user: UserModel = Depends(get_current_active_user)
+):
+
+    return history_service.history_service.get_user_history(db, user_id=current_user.id, skip=skip, limit=limit)
