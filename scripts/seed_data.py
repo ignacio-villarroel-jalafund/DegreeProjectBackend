@@ -1,6 +1,7 @@
 import sys
 import os
 import asyncio
+import json
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
@@ -8,7 +9,12 @@ from app.models.user import User
 from app.models.recipe import Recipe
 from app.models.favorite import Favorite
 from app.core.security import get_password_hash
+
 from app.services.scraping_service import scraping_service
+from app.services.recipe_processor_service import recipe_processor_service
+from app.services.nutrition_service import nutrition_service
+
+CACHE_FILE = 'scraped_data_cache.json'
 
 RECIPES_BY_CATEGORY = {
     "Vegano": ["https://cookpad.com/bo/recetas/17219292", "https://cookpad.com/bo/recetas/24647195", "https://cookpad.com/bo/recetas/24629062", "https://cookpad.com/bo/recetas/24615505", "https://cookpad.com/bo/recetas/24585807", "https://cookpad.com/bo/recetas/24431246", "https://cookpad.com/bo/recetas/24416605", "https://cookpad.com/bo/recetas/24392020", "https://cookpad.com/bo/recetas/24543271", "https://cookpad.com/bo/recetas/23928273", "https://cookpad.com/bo/recetas/24425336"],
@@ -28,10 +34,8 @@ USER_PERSONAS = [
     {"username": "soup_aficionado", "email": "soup_aficionado@example.com", "likes": ["Sopas"]},
     {"username": "fast_food_fan", "email": "fast_food_fan@example.com", "likes": ["Comida rapida"]},
     {"username": "bolivian_foodie", "email": "bolivian_foodie@example.com", "likes": ["Boliviana"]},
-    
     {"username": "gluten_free_gourmet", "email": "glutenfree@example.com", "likes": ["Sin gluten"]},
     {"username": "lactose_free_life", "email": "lactosefree@example.com", "likes": ["Sin lactosa"]},
-    
     {"username": "comfort_food_cook", "email": "comfort_food@example.com", "likes": ["Sopas", "Carne"]},
     {"username": "patriotic_carnivore", "email": "patriotic_carnivore@example.com", "likes": ["Carne", "Boliviana"]},
     {"username": "sweet_baker_gf", "email": "sweet_baker_gf@example.com", "likes": ["Postres", "Sin gluten"]},
@@ -41,7 +45,21 @@ USER_PERSONAS = [
     {"username": "allergy_conscious_baker", "email": "allergy_baker@example.com", "likes": ["Postres", "Sin lactosa", "Sin gluten"]},
 ]
 
-def safe_parse_servings(servings_text: str) -> int:
+def get_cache_file_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), CACHE_FILE)
+
+def load_cache():
+    try:
+        with open(get_cache_file_path(), 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def save_cache(data):
+    with open(get_cache_file_path(), 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def safe_parse_servings(servings_text: any) -> int:
     if not servings_text: return 1
     try:
         parts = str(servings_text).split(' ')
@@ -50,50 +68,85 @@ def safe_parse_servings(servings_text: str) -> int:
     except (ValueError, AttributeError): pass
     return 1
 
-async def seed():
-    print("--- Starting Database Seeding Process ---")
-    db: Session = SessionLocal()
-
+async def get_scraped_and_analyzed_data(url: str):
     try:
-        print("\nStep 1: Creating database tables if they don't exist...")
-        Base.metadata.create_all(bind=engine)
+        scraped_data = await scraping_service.scrape_recipe_from_url(url)
+        cleaned_data = recipe_processor_service.process(scraped_data)
 
-        print("\nStep 2: Scraping all recipes...")
+        if cleaned_data and cleaned_data.get('ingredients'):
+            nutritional_info = await nutrition_service.calculate_nutritional_info_for_recipe(
+                ingredients=cleaned_data['ingredients']
+            )
+            cleaned_data['nutrition'] = nutritional_info.model_dump() if hasattr(nutritional_info, 'model_dump') else vars(nutritional_info)
+        
+        return cleaned_data
+    except Exception as exc:
+        print(f"  -> Failed to process URL {url}: {exc}")
+        return None
+
+async def seed():
+    db: Session = SessionLocal()
+    scraped_cache = load_cache()
+    
+    try:
         url_to_recipe_map = {}
         all_urls = sorted(list(set(url for urls in RECIPES_BY_CATEGORY.values() for url in urls)))
         
+        new_data_scraped = False
         for url in all_urls:
             existing_recipe = db.query(Recipe).filter(Recipe.url == str(url)).first()
             if existing_recipe:
                 url_to_recipe_map[url] = existing_recipe
                 continue
             
-            try:
-                print(f"Scraping: {url}")
-                scraped_data = await scraping_service.scrape_recipe_from_url(url)
-                if not scraped_data.get('title'): continue
+            scraped_data = None
+            if url in scraped_cache:
+                print(f"Using cache for: {url}")
+                scraped_data = scraped_cache[url]
+            else:
+                print(f"Scraping new URL: {url}")
+                scraped_data = await get_scraped_and_analyzed_data(url)
+                if scraped_data:
+                    scraped_cache[url] = scraped_data
+                    new_data_scraped = True
 
+            if not scraped_data or not scraped_data.get('title'): 
+                print(f"  -> Skipping URL due to missing data or error: {url}")
+                continue
+
+            try:
                 recipe_obj = Recipe(
-                    id=uuid4(), recipe_name=scraped_data.get('title'),
+                    id=uuid4(),
+                    recipe_name=scraped_data.get('title'),
                     servings=safe_parse_servings(scraped_data.get('servings')),
                     ingredients="\n".join(scraped_data.get('ingredients', [])),
                     directions="\n".join(scraped_data.get('directions', [])),
+                    nutrition=json.dumps(scraped_data.get('nutrition')) if scraped_data.get('nutrition') else None,
                     url=str(scraped_data.get('url')),
                     img_src=str(scraped_data.get('image_url')) if scraped_data.get('image_url') else None
                 )
-                db.add(recipe_obj); db.commit(); db.refresh(recipe_obj)
+                db.add(recipe_obj)
+                db.commit()
+                db.refresh(recipe_obj)
                 url_to_recipe_map[url] = recipe_obj
-            except Exception as e:
-                print(f"  -> Error processing URL {url}: {e}"); db.rollback()
 
-        print("\nStep 3: Creating users and preparing favorite relationships...")
+            except Exception as e:
+                print(f"  -> Database Error for URL {url}: {e}")
+                db.rollback()
+
+        if new_data_scraped:
+            save_cache(scraped_cache)
+
+        print("\nCreating users and preparing favorite relations")
         favorites_to_add = set()
         for persona in USER_PERSONAS:
             user_obj = db.query(User).filter(User.email == persona['email']).first()
             if not user_obj:
                 print(f"Creating user: {persona['username']}")
                 user_obj = User(id=uuid4(), username=persona['username'], email=persona['email'], password=get_password_hash("string"))
-                db.add(user_obj); db.commit(); db.refresh(user_obj)
+                db.add(user_obj)
+                db.commit()
+                db.refresh(user_obj)
             
             for category in persona['likes']:
                 for url in RECIPES_BY_CATEGORY.get(category, []):
@@ -101,7 +154,6 @@ async def seed():
                         recipe = url_to_recipe_map[url]
                         favorites_to_add.add((user_obj.id, recipe.id))
         
-        print(f"\nStep 4: Adding {len(favorites_to_add)} unique favorite relationships to the database...")
         for user_id, recipe_id in favorites_to_add:
             existing_fav = db.query(Favorite).filter_by(user_id=user_id, recipe_id=recipe_id).first()
             if not existing_fav:
@@ -111,8 +163,7 @@ async def seed():
 
     finally:
         db.close()
-        print("\n--- Database Seeding Process Completed Successfully! ---")
 
 if __name__ == "__main__":
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
     asyncio.run(seed())
